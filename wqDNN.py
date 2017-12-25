@@ -1,90 +1,26 @@
-import csv
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn import preprocessing
 import os
 import tensorflow as tf
-import math
 import numpy as np
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-f = open('winequality-white.csv', 'r')
-FEATURE = []    # list of the member and it's feature
-FEATURE_NAME = []   # feature name ex:ph, density, alcohol ...
-# ATTRIBUTE = []  # list of the feature
-# ATTRIBUTE_ID = []   # cluster id of the each feature
-# INPUT_DATA = []     # convert the feature which is str to the cluster id
-CV = 10         # cross validation amount
+# load dataset & normalize
+def preprocess():
+    dataset = pd.read_csv("./dataset/winequality-red-dot.csv")
+    #Normalize
+    min_max_scaler = preprocessing.MinMaxScaler()
+    x_scaled = min_max_scaler.fit_transform(dataset)
+    a = pd.DataFrame(x_scaled, columns=dataset.columns)
+    a.drop('quality', axis=1, inplace=True)
 
-
-def catch_feature():
-    global FEATURE, FEATURE_NAME
-    # read csv
-    for row_id, row in enumerate(csv.reader(f, delimiter=';')):
-        FEATURE.append(row)
-        if row_id != 0:
-            for fr_id, fr in enumerate(FEATURE[row_id]):
-                FEATURE[row_id][fr_id] = float(fr)
-
-        # if row_id == 0:
-        #     for i in range(len(FEATURE[0])):
-        #         ATTRIBUTE.append([])
-        #         # ATTRIBUTE_ID.append({})
-        #     continue
-        # for ele_id, element in enumerate(row):
-        #     ATTRIBUTE[ele_id].append(element)
-    f.close()
-    FEATURE_NAME = FEATURE[0]
-    del FEATURE[0]
-    # attribute cluster
-    # for i in range(len(FEATURE[0])):
-    #     try:
-    #         for ele_id, element in enumerate(ATTRIBUTE[i]):
-    #             ATTRIBUTE[i][ele_id] = int(element)
-    #         ATTRIBUTE_ID[i]['int'] = 0
-    #     except Exception:
-    #         a_id = 0
-    #         for v, k in enumerate(ATTRIBUTE[i]):
-    #             if k in ATTRIBUTE_ID[i]:
-    #                 continue
-    #             else:
-    #                 ATTRIBUTE_ID[i][k] = a_id
-    #                 a_id += 1
-
-    # # delete training data answer (answer is in ATTRIBUTE[-1])
-    # for f_id in range(len(FEATURE)):
-    #     del FEATURE[f_id][-1]
-
-    # create input data
-    # for feature_id, feature_ele in enumerate(FEATURE[1:]):
-    #     input_t = []
-    #     for ele_id, ele in enumerate(feature_ele):
-    #         try:
-    #             FEATURE[feature_id + 1][ele_id] = int(ele)
-    #             input_t.append(int(ele))
-    #         except Exception:
-    #             FEATURE[feature_id + 1][ele_id] = ATTRIBUTE_ID[ele_id][ele]
-    #             for i in range(len(ATTRIBUTE_ID[ele_id])):
-    #                 if i == ATTRIBUTE_ID[ele_id][ele]:
-    #                     input_t.append(1)
-    #                 else:
-    #                     input_t.append(0)
-    #     INPUT_DATA.append(input_t)
-
-
-# divide input data into CV parts
-def cross_validation():
-    global CV, FEATURE
-    split_num = int(math.ceil(len(FEATURE)/CV))
-    split_list = []
-    for num in range(0, len(FEATURE), split_num):
-        sp = []
-        # sp = [train_data.values[num + i].tolist() for i in range(split_num) if num+i < len(train_data)]
-        for i in range(split_num):
-            try:
-                sp.append(FEATURE[num + i])
-            except:
-                break
-        split_list.append(sp)
-    return split_list
+    # split train and test set
+    quality = list(dataset['quality'])
+    train, test = train_test_split(a, test_size=0.1, random_state=42)
+    train_q, test_q = train_test_split(quality, test_size=0.1, random_state=42)
+    return train, test, train_q, test_q
 
 
 # tensorflow add layer
@@ -99,79 +35,129 @@ def add_layer(inputs, input_tensors, output_tensors, activation_function=None):
     return outputs
 
 
-# testing accuracy
-def ans_predict(ans, my_prediction):
-    my_prediction = list(my_prediction)
-    prediction = my_prediction.index(max(my_prediction))
-    if prediction == (ans - 3):
-        return 1
-    else:
-        return 0
-
-
-catch_feature()
-print('catch feature down')
+train_data, test_data, train_y, test_y = preprocess()
+np.savetxt("./prediction/train_label.txt", train_y, delimiter=',')
+np.savetxt("./prediction/test_label.txt", test_y, delimiter=',')
+print('preprocess down')
 
 # layer units define
-INPUT = len(FEATURE[0]) - 1
-HIDDEN = INPUT
+INPUT = len(train_data.values[0]) #11
+HIDDEN = 5
 OUTPUT = 6
+
 
 y_feed = tf.placeholder(tf.int32, [1])  # no:0 yes:1
 y_hat = tf.one_hot((y_feed-3), OUTPUT)  # 3~8 => 0~5
-input_feed = tf.placeholder(tf.float32, [None, INPUT])
+x_feed = tf.placeholder(tf.float32, [None, INPUT])
 
-# layer define you can add more hidden in there
-hidden_layer = add_layer(input_feed, input_tensors=INPUT, output_tensors=HIDDEN, activation_function=tf.nn.sigmoid)
-hidden_layer2 = add_layer(hidden_layer, input_tensors=HIDDEN, output_tensors=HIDDEN, activation_function=tf.nn.sigmoid)
-hidden_layer3 = add_layer(hidden_layer2, input_tensors=HIDDEN, output_tensors=HIDDEN, activation_function=tf.nn.sigmoid)
-hidden_layer4 = add_layer(hidden_layer3, input_tensors=HIDDEN, output_tensors=HIDDEN, activation_function=tf.nn.sigmoid)
-hidden_layer5 = add_layer(hidden_layer4, input_tensors=HIDDEN, output_tensors=HIDDEN, activation_function=tf.nn.sigmoid)
-output_layer = add_layer(hidden_layer5, input_tensors=HIDDEN, output_tensors=OUTPUT, activation_function=tf.nn.softmax)
+
+# pca encode (acc is bad so i not use it)
+PCA = 2
+encode_weight = {"wen1": np.loadtxt("./encode/w_pca1.txt", delimiter=','),
+                 "wen2": np.loadtxt("./encode/w_pca2.txt", delimiter=','),
+                 "wen3": np.loadtxt("./encode/w_pca3.txt", delimiter=',')}
+encode_bias = {"ben1": np.loadtxt("./encode/b_pca1.txt", delimiter=','),
+               "ben2": np.loadtxt("./encode/b_pca2.txt", delimiter=','),
+               "ben3": np.loadtxt("./encode/b_pca3.txt", delimiter=',')}
+
+wen1 = tf.constant(encode_weight['wen1'], name='wen1', dtype=tf.float32)
+ben1 = tf.constant(encode_bias['ben1'], name='ben1', dtype=tf.float32)
+encode1 = tf.add(tf.matmul(x_feed, wen1), ben1)  # matmul = dot
+
+wen2 = tf.constant(encode_weight['wen2'], name='wen2', dtype=tf.float32)
+ben2 = tf.constant(encode_bias['ben2'], name='ben2', dtype=tf.float32)
+encode2 = tf.add(tf.matmul(encode1, wen2), ben2)  # matmul = dot
+
+wen3 = tf.constant(encode_weight['wen3'], name='wen3', dtype=tf.float32)
+ben3 = tf.constant(encode_bias['ben3'], name='ben3', dtype=tf.float32)
+x_pca = tf.add(tf.matmul(encode2, wen3), ben3)  # matmul = dot
+#
+
+# hidden_layer 1
+w1 = tf.Variable(tf.random_uniform([INPUT, 4], minval=-1, maxval=1))
+b1 = tf.Variable(tf.random_uniform([4], minval=-1, maxval=1))
+formula1 = tf.add(tf.matmul(x_feed, w1), b1)  # matmul = dot
+hidden_layer1 = tf.nn.sigmoid(formula1)
+# hidden_layer 2
+w2 = tf.Variable(tf.random_uniform([4, HIDDEN], minval=-1, maxval=1))
+b2 = tf.Variable(tf.random_uniform([HIDDEN], minval=-1, maxval=1))
+formula2 = tf.add(tf.matmul(hidden_layer1, w2), b2)  # matmul = dot
+hidden_layer2 = tf.nn.sigmoid(formula2)
+# output
+w3 = tf.Variable(tf.random_uniform([HIDDEN, OUTPUT], minval=-1, maxval=1))
+b3 = tf.Variable(tf.random_uniform([OUTPUT], minval=-1, maxval=1))
+output_formula = tf.add(tf.matmul(hidden_layer2, w3), b3)  # matmul = dot
+output_layer = tf.nn.softmax(output_formula)
 
 loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=y_hat, logits=output_layer))   # loss function use cross entropy
 # loss = tf.losses.mean_squared_error(y_hat, output_layer)
-optimizer = tf.train.AdagradOptimizer(learning_rate=0.01)  # use adadeleta(adagrand的加強版) change learning rate
+optimizer = tf.train.AdagradOptimizer(learning_rate=0.1)
 train = optimizer.minimize(loss)
+
+# Accuracy if argmax(output_layer) == label: return 1
+correct_prediction = tf.equal(tf.arg_max(output_layer, 1), tf.arg_max(y_hat, 1))
+acc = tf.cast(correct_prediction, tf.float32)
+
 
 init = tf.global_variables_initializer()
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.3)
 sess = tf.Session(config=tf.ConfigProto(
-  allow_soft_placement=True, log_device_placement=True, gpu_options=gpu_options))
+  allow_soft_placement=True, log_device_placement=False, gpu_options=gpu_options))
 sess.run(init)
 
 
 print('training')
 
-cv_list = cross_validation()
-for cv in range(CV):
-    print('cv' + str(cv))
 
-    if cv != 0:
-        cv_list[0], cv_list[cv] = cv_list[cv], cv_list[0]
+data_num = len(train_data.values)
+test_num = len(test_data.values)
 
-    for iteration in range(10000001):
+for iteration in range(1000001):
+    cost_total = 0  # loss score
+    acc_total = 0  # train set accuracy
+    quality_acc = 0  # train set kaggle accuracy
+    train_prediction_list = []
+    for pid, point in enumerate(train_data.values):
+        _, cost, output_acc, train_prediction = sess.run([train, loss, acc, output_layer], feed_dict={x_feed: [point], y_feed: [train_y[pid]]})
 
-        total_loss = 0
-        total_num = 0
-        for i in range(1, len(cv_list)):
-            for fid, feature in enumerate(cv_list[i]):
-                _, cost = sess.run([train, loss], feed_dict={input_feed: [feature[0:-1]], y_feed: [feature[-1]]})
-                total_loss += cost
-                total_num += 1
+        # accuracy
+        cost_total += cost
+        acc_total += output_acc
 
-        if iteration % 100 == 0:
-            print('iteration:', iteration)
-            print('loss:')
-            print(total_loss / total_num)
-            print('testing')
-            acc = 0
-            for _, test_data in enumerate(cv_list[0]):
-                output = sess.run(output_layer, feed_dict={input_feed: [test_data[0:-1]], y_feed: [test_data[-1]]})
-                acc += ans_predict(test_data[-1], output[0])
-            print(acc / len(cv_list[0]))
+        # kaggle accuracy
+        train_prediction = np.argmax(train_prediction)
+        train_prediction_list.append(train_prediction+3)
+        if train_prediction > 2 and train_y[pid]-3 > 2:
+            quality_acc += 1
+        elif train_prediction <= 2 and train_y[pid]-3 <= 2:
+            quality_acc += 1
 
-    sess.run(init)
+    if iteration % 10 == 0:
+        test_acc = 0
+        test_acc_quality = 0
+        test_pca = []
+        test_prediction_list = []
+        for tid, test in enumerate(test_data.values):
+            accuracy, test_prediction, test_g = sess.run([acc, output_layer, x_pca], feed_dict={x_feed:[test], y_feed: [test_y[tid]]})
+            test_pca.append(test_g[0])
+
+            #accuracy
+            test_acc += accuracy
+            #kaggle accuracy
+            test_prediction = np.argmax(test_prediction)
+            test_prediction_list.append(test_prediction + 3)
+            if test_prediction > 2 and test_y[tid] - 3 > 2:
+                test_acc_quality += 1
+            elif test_prediction <= 2 and test_y[tid] - 3 <= 2:
+                test_acc_quality += 1
+
+        print("iteration:", iteration)
+        print("train acc:", cost_total, acc_total / data_num, quality_acc / data_num)  # loss, acc, kaggle acc
+        print("test acc:", test_acc / test_num, test_acc_quality / test_num)  # acc, kaggle acc
+        np.savetxt("./prediction/train_prediction.txt", train_prediction_list, delimiter=',')
+        np.savetxt("./prediction/test_prediction.txt", test_prediction_list, delimiter=',')
+        # np.savetxt("./encode/test_list.txt", test_pca, delimiter=',')
+        print('save down')
 
 print('down')
 #
